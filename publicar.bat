@@ -16,7 +16,12 @@ if exist dist\index.html (
 )
 
 echo.
-echo === 3. Enviando tudo atualizado para o GitHub ===
+echo === 3. Sincronizando com o GitHub (Pull Automatico) ===
+:: O "--no-edit" impede que aquela tela preta com "~" se abra!
+git pull origin main --allow-unrelated-histories --no-edit
+
+echo.
+echo === 4. Enviando tudo atualizado para o GitHub ===
 git add .
 set /p mensagem="Digite a mensagem do commit: "
 git commit -m "%mensagem%"
