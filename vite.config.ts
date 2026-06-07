@@ -12,6 +12,12 @@ const __dirname = path.dirname(__filename);
 export default defineConfig({
   plugins: [react(), tailwindcss(), viteSingleFile()],
   base: "",
+  root: "src",
+  publicDir: "../public",
+  build: {
+    outDir: "../dist",
+    emptyOutDir: true,
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
