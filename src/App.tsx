@@ -7,8 +7,8 @@ import {
 } from "react";
 
 type GameStatus = "ready" | "playing" | "paused" | "gameover";
-type ObstacleKind = "rock" | "mine" | "log";
-type PickupKind = "fuel" | "repair";
+type ObstacleKind = "rock" | "mine" | "log" | "heli" | "destroyer";
+type PickupKind = "fuel" | "repair" | "powerup";
 type SoundName =
   | "start"
   | "pause"
@@ -29,6 +29,7 @@ interface Player {
   targetY: number;
   tilt: number;
   invincibleUntil: number;
+  tripleShotUntil: number;
 }
 
 interface Entity {
@@ -111,6 +112,68 @@ const sanitizePlayerName = (value: string) => {
   return clean || "Piloto";
 };
 
+const hexToRgb = (hex: string) => {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16)
+  } : { r: 0, g: 0, b: 0 };
+};
+
+const lerpColor = (a: string, b: string, amount: number) => {
+  const ah = hexToRgb(a);
+  const bh = hexToRgb(b);
+  const rr = Math.round(ah.r + (bh.r - ah.r) * amount);
+  const rg = Math.round(ah.g + (bh.g - ah.g) * amount);
+  const rb = Math.round(ah.b + (bh.b - ah.b) * amount);
+  return `rgb(${rr}, ${rg}, ${rb})`;
+};
+
+interface SectorPalette {
+  landTop: string;
+  landMid: string;
+  landBot: string;
+  waterTop: string;
+  waterMid: string;
+  waterBot: string;
+  grid: string;
+  riverMargin: string;
+}
+
+const SECTORS: SectorPalette[] = [
+  { landTop: "#02150f", landMid: "#06351f", landBot: "#020617", waterTop: "#0ea5e9", waterMid: "#075985", waterBot: "#172554", grid: "#36f0a0", riverMargin: "#7df9ff" },
+  { landTop: "#170215", landMid: "#3b0635", landBot: "#020617", waterTop: "#d946ef", waterMid: "#86198f", waterBot: "#2e1065", grid: "#e879f9", riverMargin: "#f0abfc" },
+  { landTop: "#1a0505", landMid: "#450a0a", landBot: "#020617", waterTop: "#f87171", waterMid: "#991b1b", waterBot: "#450a0a", grid: "#fca5a5", riverMargin: "#fecaca" },
+  { landTop: "#021a1f", landMid: "#084959", landBot: "#020617", waterTop: "#67e8f9", waterMid: "#0891b2", waterBot: "#164e63", grid: "#a5f3fc", riverMargin: "#cffafe" },
+];
+
+const getSectorColors = (distance: number): SectorPalette => {
+  if (distance < 0) distance = 0;
+  const sectorLen = 2000;
+  const idx = Math.floor(distance / sectorLen);
+  if (idx >= SECTORS.length - 1) return SECTORS[SECTORS.length - 1];
+  
+  const nextIdx = idx + 1;
+  const progress = (distance % sectorLen) / sectorLen;
+  const blendAmount = progress > 0.8 ? (progress - 0.8) * 5 : 0;
+  
+  if (blendAmount === 0) return SECTORS[idx];
+
+  const s1 = SECTORS[idx];
+  const s2 = SECTORS[nextIdx];
+  return {
+    landTop: lerpColor(s1.landTop, s2.landTop, blendAmount),
+    landMid: lerpColor(s1.landMid, s2.landMid, blendAmount),
+    landBot: lerpColor(s1.landBot, s2.landBot, blendAmount),
+    waterTop: lerpColor(s1.waterTop, s2.waterTop, blendAmount),
+    waterMid: lerpColor(s1.waterMid, s2.waterMid, blendAmount),
+    waterBot: lerpColor(s1.waterBot, s2.waterBot, blendAmount),
+    grid: lerpColor(s1.grid, s2.grid, blendAmount),
+    riverMargin: lerpColor(s1.riverMargin, s2.riverMargin, blendAmount),
+  };
+};
+
 const loadRanking = (): RankingEntry[] => {
   try {
     const saved = window.localStorage.getItem(RANKING_KEY);
@@ -144,14 +207,22 @@ const rectsOverlap = (
   Math.abs(a.x - b.x) * 2 < a.w + b.w &&
   Math.abs(a.y - b.y) * 2 < a.h + b.h;
 
-const riverAt = (y: number, scroll: number, width: number) => {
+const riverAt = (y: number, scroll: number, width: number, distance: number = 0) => {
   const safeWidth = Math.max(width, 320);
   const pathY = y + scroll;
+  
+  let widthMultiplier = 1.0;
+  if (distance > 2000) {
+    // Narrow down by 20% in sectors > 1
+    widthMultiplier = 0.8;
+  }
+  
   const riverWidth = clamp(
-    safeWidth * 0.58 + Math.sin(pathY * 0.006) * safeWidth * 0.06,
-    Math.min(230, safeWidth * 0.72),
-    safeWidth * 0.74,
+    (safeWidth * 0.58 + Math.sin(pathY * 0.006) * safeWidth * 0.06) * widthMultiplier,
+    Math.min(180, safeWidth * 0.55),
+    safeWidth * 0.74 * widthMultiplier,
   );
+  
   const center =
     safeWidth / 2 +
     Math.sin(pathY * 0.0042) * safeWidth * 0.14 +
@@ -194,6 +265,7 @@ const createGame = (): GameState => ({
     targetY: 560,
     tilt: 0,
     invincibleUntil: 0,
+    tripleShotUntil: 0,
   },
   obstacles: [],
   pickups: [],
@@ -224,7 +296,7 @@ const syncPlayerSize = (game: GameState) => {
 
 const placePlayer = (game: GameState) => {
   syncPlayerSize(game);
-  const river = riverAt(game.height * 0.76, game.scroll, game.width);
+  const river = riverAt(game.height * 0.76, game.scroll, game.width, game.distance);
   game.player.x = river.center;
   game.player.y = game.height * 0.76;
   game.player.targetX = game.player.x;
@@ -233,9 +305,56 @@ const placePlayer = (game: GameState) => {
 
 const spawnObstacle = (game: GameState) => {
   const y = -70;
-  const river = riverAt(y, game.scroll, game.width);
+  const river = riverAt(y, game.scroll, game.width, game.distance);
   const kindRoll = Math.random();
-  const kind: ObstacleKind = kindRoll < 0.43 ? "rock" : kindRoll < 0.72 ? "mine" : "log";
+  let kind: ObstacleKind;
+
+  if (game.distance > 4000 && kindRoll < 0.08 && !game.obstacles.some(o => o.kind === "destroyer")) {
+    kind = "destroyer";
+  } else if (game.distance > 1500 && kindRoll < 0.18) {
+    kind = "heli";
+  } else {
+    kind = kindRoll < 0.43 ? "rock" : kindRoll < 0.72 ? "mine" : "log";
+  }
+
+  if (kind === "destroyer") {
+    const isLeftAligned = Math.random() > 0.5;
+    const destW = 160;
+    // Align tightly to one side of the river so there's a small gap on the other
+    const destX = isLeftAligned ? river.left + destW / 2 + 10 : river.right - destW / 2 - 10;
+    
+    game.obstacles.push({
+      id: nextId(game),
+      kind: "destroyer",
+      x: destX,
+      y: y - 100, // spawn completely out of view
+      w: destW,
+      h: 90,
+      hp: 10,
+      spin: 0,
+      drift: 0,
+      sway: 0,
+    });
+    return;
+  }
+
+  if (kind === "heli") {
+    const isLeft = Math.random() > 0.5;
+    game.obstacles.push({
+      id: nextId(game),
+      kind: "heli",
+      x: isLeft ? -50 : game.width + 50,
+      y: y - random(0, 150),
+      w: 64,
+      h: 64,
+      hp: 1,
+      spin: 0,
+      drift: isLeft ? random(120, 180) : -random(120, 180),
+      sway: 0,
+    });
+    return;
+  }
+
   const size = kind === "mine" ? random(26, 38) : kind === "rock" ? random(34, 54) : random(56, 82);
   const margin = Math.max(34, size * 0.72);
 
@@ -255,7 +374,7 @@ const spawnObstacle = (game: GameState) => {
 
 const spawnPickup = (game: GameState) => {
   const y = -58;
-  const river = riverAt(y, game.scroll, game.width);
+  const river = riverAt(y, game.scroll, game.width, game.distance);
   const kind: PickupKind = Math.random() < 0.76 ? "fuel" : "repair";
 
   game.pickups.push({
@@ -418,6 +537,22 @@ const fireShot = (game: GameState) => {
     w: 5,
     h: 28,
   });
+  if (game.player.tripleShotUntil > game.time) {
+    game.shots.push({
+      id: nextId(game),
+      x: game.player.x - 20,
+      y: game.player.y - game.player.h * 0.52,
+      w: 5,
+      h: 28,
+    });
+    game.shots.push({
+      id: nextId(game),
+      x: game.player.x + 20,
+      y: game.player.y - game.player.h * 0.52,
+      w: 5,
+      h: 28,
+    });
+  }
   return true;
 };
 
@@ -465,8 +600,8 @@ const updateGame = (
   player.y = clamp(player.y, game.height * 0.43, game.height * 0.86);
   player.x = clamp(player.x, 12, game.width - 12);
 
-  const topRiver = riverAt(player.y - player.h * 0.45, game.scroll, game.width);
-  const bottomRiver = riverAt(player.y + player.h * 0.45, game.scroll, game.width);
+  const topRiver = riverAt(player.y - player.h * 0.45, game.scroll, game.width, game.distance);
+  const bottomRiver = riverAt(player.y + player.h * 0.45, game.scroll, game.width, game.distance);
   const leftEdge = Math.max(topRiver.left, bottomRiver.left) + player.w * 0.36;
   const rightEdge = Math.min(topRiver.right, bottomRiver.right) - player.w * 0.36;
 
@@ -501,8 +636,15 @@ const updateGame = (
   }
 
   for (const obstacle of game.obstacles) {
-    obstacle.y += (game.speed + 28 + obstacle.drift) * dt;
-    obstacle.x += Math.sin(game.time * 2.1 + obstacle.id) * obstacle.sway * dt;
+    if (obstacle.kind === "heli") {
+      obstacle.y += (game.speed * 0.3) * dt;
+      obstacle.x += obstacle.drift * dt;
+    } else if (obstacle.kind === "destroyer") {
+      obstacle.y += (game.speed * 0.15) * dt; // Muito lento
+    } else {
+      obstacle.y += (game.speed + 28 + obstacle.drift) * dt;
+      obstacle.x += Math.sin(game.time * 2.1 + obstacle.id) * obstacle.sway * dt;
+    }
   }
   for (const pickup of game.pickups) {
     pickup.y += (game.speed + 20) * dt;
@@ -526,7 +668,27 @@ const updateGame = (
       game.shots.splice(shotIndex, 1);
       if (obstacle.hp <= 0) {
         game.obstacles.splice(obstacleIndex, 1);
-        game.score += obstacle.kind === "rock" ? 95 : 70;
+        if (obstacle.kind === "heli") {
+          game.score += 150;
+          game.pickups.push({
+            id: nextId(game),
+            kind: "powerup",
+            x: obstacle.x,
+            y: obstacle.y,
+            w: 30,
+            h: 30,
+            hp: 1,
+            spin: random(-2.5, 2.5),
+            drift: obstacle.drift * 0.1,
+            sway: random(8, 18),
+          });
+        } else if (obstacle.kind === "destroyer") {
+          game.score += 350;
+          // Explode violently, screen shake
+          game.shake = Math.max(game.shake, 0.4);
+        } else {
+          game.score += obstacle.kind === "rock" ? 95 : 70;
+        }
       } else {
         game.score += 25;
       }
@@ -564,9 +726,13 @@ const updateGame = (
       game.fuel = clamp(game.fuel + 28, 0, 100);
       game.score += 115;
       playSound("pickupFuel");
-    } else {
+    } else if (pickup.kind === "repair") {
       game.hull = clamp(game.hull + 22, 0, 100);
       game.score += 135;
+      playSound("pickupRepair");
+    } else if (pickup.kind === "powerup") {
+      game.player.tripleShotUntil = game.time + 8;
+      game.score += 250;
       playSound("pickupRepair");
     }
     game.pickups.splice(index, 1);
@@ -578,17 +744,19 @@ const updateGame = (
 };
 
 const drawRiver = (ctx: CanvasRenderingContext2D, game: GameState) => {
-  const { width, height, scroll } = game;
+  const { width, height, scroll, distance } = game;
+  const colors = getSectorColors(distance);
+
   const landGradient = ctx.createLinearGradient(0, 0, width, height);
-  landGradient.addColorStop(0, "#02150f");
-  landGradient.addColorStop(0.45, "#06351f");
-  landGradient.addColorStop(1, "#020617");
+  landGradient.addColorStop(0, colors.landTop);
+  landGradient.addColorStop(0.45, colors.landMid);
+  landGradient.addColorStop(1, colors.landBot);
   ctx.fillStyle = landGradient;
   ctx.fillRect(0, 0, width, height);
 
   ctx.save();
   ctx.globalAlpha = 0.26;
-  ctx.strokeStyle = "#36f0a0";
+  ctx.strokeStyle = colors.grid;
   ctx.lineWidth = 1;
   for (let x = ((scroll * 0.12) % 46) - 46; x < width + 46; x += 46) {
     ctx.beginPath();
@@ -601,7 +769,7 @@ const drawRiver = (ctx: CanvasRenderingContext2D, game: GameState) => {
   const leftPoints: Array<{ x: number; y: number }> = [];
   const rightPoints: Array<{ x: number; y: number }> = [];
   for (let y = -70; y <= height + 70; y += 18) {
-    const river = riverAt(y, scroll, width);
+    const river = riverAt(y, scroll, width, distance);
     leftPoints.push({ x: river.left, y });
     rightPoints.push({ x: river.right, y });
   }
@@ -616,9 +784,9 @@ const drawRiver = (ctx: CanvasRenderingContext2D, game: GameState) => {
   ctx.closePath();
 
   const waterGradient = ctx.createLinearGradient(0, 0, width, height);
-  waterGradient.addColorStop(0, "#0ea5e9");
-  waterGradient.addColorStop(0.45, "#075985");
-  waterGradient.addColorStop(1, "#172554");
+  waterGradient.addColorStop(0, colors.waterTop);
+  waterGradient.addColorStop(0.45, colors.waterMid);
+  waterGradient.addColorStop(1, colors.waterBot);
   ctx.save();
   ctx.shadowColor = "rgba(34, 211, 238, 0.55)";
   ctx.shadowBlur = 24;
@@ -628,8 +796,8 @@ const drawRiver = (ctx: CanvasRenderingContext2D, game: GameState) => {
 
   ctx.save();
   ctx.lineWidth = 3;
-  ctx.strokeStyle = "rgba(125, 249, 255, 0.78)";
-  ctx.shadowColor = "rgba(34, 211, 238, 0.9)";
+  ctx.strokeStyle = colors.riverMargin;
+  ctx.shadowColor = colors.riverMargin;
   ctx.shadowBlur = 12;
   ctx.beginPath();
   leftPoints.forEach((point, index) => {
@@ -651,7 +819,7 @@ const drawRiver = (ctx: CanvasRenderingContext2D, game: GameState) => {
   ctx.lineWidth = 2;
   for (let i = 0; i < 15; i += 1) {
     const y = ((scroll * 0.62 + i * 76) % (height + 110)) - 70;
-    const river = riverAt(y, scroll, width);
+    const river = riverAt(y, scroll, width, distance);
     const stripeWidth = river.width * (0.18 + ((i * 37) % 18) / 100);
     ctx.beginPath();
     ctx.moveTo(river.center - stripeWidth, y);
@@ -666,7 +834,76 @@ const drawObstacle = (ctx: CanvasRenderingContext2D, obstacle: Entity, time: num
   ctx.translate(obstacle.x, obstacle.y);
   ctx.rotate(time * obstacle.spin * 0.18 + obstacle.id);
 
-  if (obstacle.kind === "mine") {
+  if (obstacle.kind === "heli") {
+    ctx.fillStyle = "#1e293b";
+    ctx.strokeStyle = "#94a3b8";
+    ctx.lineWidth = 2;
+    ctx.shadowColor = "rgba(148, 163, 184, 0.8)";
+    ctx.shadowBlur = 12;
+
+    const isMovingRight = obstacle.drift > 0;
+    const bodyW = obstacle.w * 0.45;
+    const bodyH = obstacle.h * 0.3;
+
+    ctx.beginPath();
+    ctx.ellipse(0, 0, bodyW, bodyH, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(isMovingRight ? -bodyW * 0.8 : bodyW * 0.8, 0);
+    ctx.lineTo(isMovingRight ? -obstacle.w * 0.8 : obstacle.w * 0.8, 0);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(isMovingRight ? -obstacle.w * 0.8 : obstacle.w * 0.8, -10);
+    ctx.lineTo(isMovingRight ? -obstacle.w * 0.8 : obstacle.w * 0.8, 10);
+    ctx.stroke();
+
+    ctx.save();
+    ctx.rotate(time * 25);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+    ctx.lineWidth = 3;
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.moveTo(-obstacle.w * 0.7, 0);
+    ctx.lineTo(obstacle.w * 0.7, 0);
+    ctx.moveTo(0, -obstacle.w * 0.7);
+    ctx.lineTo(0, obstacle.w * 0.7);
+    ctx.stroke();
+    ctx.restore();
+  } else if (obstacle.kind === "destroyer") {
+    ctx.fillStyle = "#334155"; // Dark gray hull
+    ctx.strokeStyle = obstacle.hp < 4 && Math.floor(time * 8) % 2 === 0 ? "#ef4444" : "#f87171"; // Flashes red when low HP
+    ctx.lineWidth = 3;
+    ctx.shadowColor = "rgba(248, 113, 113, 0.5)";
+    ctx.shadowBlur = 18;
+
+    // Huge elongated hull
+    ctx.beginPath();
+    ctx.roundRect(-obstacle.w / 2, -obstacle.h / 2, obstacle.w, obstacle.h, 12);
+    ctx.fill();
+    ctx.stroke();
+
+    // Turrets / Deck details
+    ctx.fillStyle = "#1e293b";
+    ctx.strokeStyle = "#94a3b8";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.rect(-obstacle.w * 0.35, -obstacle.h * 0.25, obstacle.w * 0.2, obstacle.h * 0.5);
+    ctx.rect(obstacle.w * 0.15, -obstacle.h * 0.25, obstacle.w * 0.2, obstacle.h * 0.5);
+    ctx.fill();
+    ctx.stroke();
+
+    // Cannons
+    ctx.beginPath();
+    ctx.moveTo(-obstacle.w * 0.25, 0);
+    ctx.lineTo(-obstacle.w * 0.25, obstacle.h * 0.6);
+    ctx.moveTo(obstacle.w * 0.25, 0);
+    ctx.lineTo(obstacle.w * 0.25, obstacle.h * 0.6);
+    ctx.stroke();
+
+  } else if (obstacle.kind === "mine") {
     ctx.strokeStyle = "rgba(248, 113, 113, 0.85)";
     ctx.lineWidth = 2;
     ctx.shadowColor = "rgba(239, 68, 68, 0.85)";
@@ -729,8 +966,8 @@ const drawPickup = (ctx: CanvasRenderingContext2D, pickup: Entity, time: number)
   ctx.translate(pickup.x, pickup.y);
   ctx.rotate(time * pickup.spin);
   ctx.shadowBlur = 18;
-  ctx.shadowColor = pickup.kind === "fuel" ? "rgba(250, 204, 21, 0.9)" : "rgba(52, 211, 153, 0.9)";
-  ctx.fillStyle = pickup.kind === "fuel" ? "#fde047" : "#34d399";
+  ctx.shadowColor = pickup.kind === "fuel" ? "rgba(250, 204, 21, 0.9)" : pickup.kind === "repair" ? "rgba(52, 211, 153, 0.9)" : "rgba(236, 72, 153, 0.9)";
+  ctx.fillStyle = pickup.kind === "fuel" ? "#fde047" : pickup.kind === "repair" ? "#34d399" : "#f472b6";
   ctx.strokeStyle = "rgba(255, 255, 255, 0.86)";
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -745,7 +982,7 @@ const drawPickup = (ctx: CanvasRenderingContext2D, pickup: Entity, time: number)
   ctx.font = "700 14px Inter, system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(pickup.kind === "fuel" ? "F" : "+", 0, 1);
+  ctx.fillText(pickup.kind === "fuel" ? "F" : pickup.kind === "repair" ? "+" : "★", 0, 1);
   ctx.restore();
 };
 
