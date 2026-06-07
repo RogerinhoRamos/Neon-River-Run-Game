@@ -607,12 +607,14 @@ const updateGame = (
 
   if (player.x < leftEdge) {
     player.x += (leftEdge - player.x) * 0.42;
-    game.hull -= dt * 36;
+    // Reduzir dano ao colidir com margem do rio
+    game.hull -= dt * 12;
     game.shake = Math.max(game.shake, 0.1);
   }
   if (player.x > rightEdge) {
     player.x -= (player.x - rightEdge) * 0.42;
-    game.hull -= dt * 36;
+    // Reduzir dano ao colidir com margem do rio
+    game.hull -= dt * 12;
     game.shake = Math.max(game.shake, 0.1);
   }
 
@@ -710,7 +712,8 @@ const updateGame = (
       if (!rectsOverlap(playerRect, obstacleRect)) continue;
 
       game.obstacles.splice(index, 1);
-      game.hull -= obstacle.kind === "rock" ? 34 : 26;
+      // Dano reduzido ao colidir com obstáculos
+      game.hull -= obstacle.kind === "rock" ? 12 : 8;
       player.invincibleUntil = game.time + 0.78;
       game.shake = Math.max(game.shake, 0.22);
       playSound("damage");
@@ -737,6 +740,9 @@ const updateGame = (
     }
     game.pickups.splice(index, 1);
   }
+
+  // Regeneração lenta de casco (hull) ao longo do tempo
+  game.hull = Math.min(100, game.hull + dt * 5);
 
   if (game.fuel <= 0 || game.hull <= 0) {
     endGame();
