@@ -12,3 +12,7 @@ pnpm-debug.log*
 
 .DS_Store
 Thumbs.db
+
+# Arquivos de contexto locais
+CONTEXT.md
+IDEIAS.md
