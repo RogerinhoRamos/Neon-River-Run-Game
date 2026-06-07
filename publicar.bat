@@ -1,27 +1,27 @@
 @echo off
 cd /d "%~dp0"
 
-echo === Verificando configuracao do Git ===
+echo === 1. Gerando a versao final do jogo (Build) ===
+call npm run build
 
-if not exist .git (
-    echo Inicializando o Git na pasta...
-    git init
-    git remote add origin https://github.com/RogerinhoRamos/Neon-River-Run-Game.git
-    git branch -M main
+echo.
+echo === 2. Movendo o jogo pronto para a raiz do projeto ===
+if exist dist\index.html (
+    copy /y dist\index.html .
+    echo Jogo preparado com sucesso na raiz!
+) else (
+    echo [ERRO] Pasta dist ou index.html nao encontrados. Verifique o build.
+    pause
+    exit
 )
 
 echo.
-echo === Preparando arquivos ===
+echo === 3. Enviando tudo atualizado para o GitHub ===
 git add .
-
-echo.
-set /p mensagem="Digite a mensagem do commit (o que voce alterou): "
-
-echo.
-echo === Enviando para o GitHub ===
+set /p mensagem="Digite a mensagem do commit: "
 git commit -m "%mensagem%"
 git push -u origin main
 
 echo.
-echo === TUDO PRONTO! Seu projeto esta no GitHub. ===
+echo === TUDO PRONTO! Arquivos atualizados. ===
 pause
