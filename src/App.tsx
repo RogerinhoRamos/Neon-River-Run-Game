@@ -1345,6 +1345,7 @@ export default function App() {
           onPointerCancel={handlePointerUp}
           onPointerUp={handlePointerUp}
         />
+        <div className="pointer-events-none absolute inset-0 border-[20px] border-cyan-500/10 opacity-30" />
       </section>
 
       <div className="pointer-events-none absolute inset-0 game-vignette" />
@@ -1412,7 +1413,7 @@ export default function App() {
         </button>
         <button
           type="button"
-          className="rounded-full border border-cyan-200/40 bg-cyan-300 px-6 py-4 text-sm font-black uppercase tracking-[0.2em] text-slate-950 shadow-[0_0_32px_rgba(34,211,238,0.5)] transition active:scale-95 disabled:opacity-40 sm:hidden"
+          className="h-24 w-24 rounded-full border-4 border-cyan-300/40 bg-cyan-300/20 text-sm font-black uppercase tracking-[0.2em] text-cyan-100 shadow-[0_0_32px_rgba(34,211,238,0.5)] transition active:scale-95 disabled:opacity-40 sm:hidden"
           disabled={status !== "playing"}
           onPointerDown={(event) => {
             event.preventDefault();
@@ -1422,7 +1423,7 @@ export default function App() {
           onPointerCancel={releaseFire}
           onPointerUp={releaseFire}
         >
-          Disparar
+          FIRE
         </button>
       </div>
 
