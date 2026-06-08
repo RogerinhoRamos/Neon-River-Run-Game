@@ -608,13 +608,13 @@ const updateGame = (
   if (player.x < leftEdge) {
     player.x += (leftEdge - player.x) * 0.42;
     // Reduzir dano ao colidir com margem do rio
-    game.hull -= dt * 5;
+    game.hull -= dt * 18;
     game.shake = Math.max(game.shake, 0.1);
   }
   if (player.x > rightEdge) {
     player.x -= (player.x - rightEdge) * 0.42;
     // Reduzir dano ao colidir com margem do rio
-    game.hull -= dt * 5;
+    game.hull -= dt * 18;
     game.shake = Math.max(game.shake, 0.1);
   }
 
@@ -713,7 +713,7 @@ const updateGame = (
 
       game.obstacles.splice(index, 1);
       // Dano reduzido ao colidir com obstáculos
-      game.hull -= obstacle.kind === "rock" ? 4 : 2;
+      game.hull -= obstacle.kind === "rock" ? 18 : 12;
       player.invincibleUntil = game.time + 0.78;
       game.shake = Math.max(game.shake, 0.22);
       playSound("damage");
@@ -742,7 +742,7 @@ const updateGame = (
   }
 
   // Regeneração mais moderada de casco (hull) ao longo do tempo
-  game.hull = Math.min(100, game.hull + dt * 2);
+  game.hull = Math.min(100, game.hull + dt * 1);
 
   if (game.fuel <= 0 || game.hull <= 0) {
     endGame();
